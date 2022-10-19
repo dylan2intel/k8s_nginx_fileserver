@@ -1,0 +1,105 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginxfs
+  labels:
+    app: nginxfs
+    tier: frontend
+spec:
+  ports:
+    - nodePort: 30081
+      port: 80
+      protocol: TCP
+  selector:
+    app: nginxfs
+    tier: frontend
+  type: NodePort
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nginx-pv-volume
+  labels:
+    type: local
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 20Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/data/nginx"
+  # persistentVolumeReclaimPolicy: Recycle
+  persistentVolumeReclaimPolicy: Retain
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nginx-pv-claim
+  labels:
+    app: nginx
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+  labels:
+    app: nginx-config
+data:
+  fserver.conf: |
+    server {
+      listen 80;
+      server_name _;
+      location / {
+        root /srv;
+        autoindex on;
+      }
+    }
+---
+apiVersion: apps/v1   # versions before 1.9.0 use apps/v1beta2
+kind: Deployment
+metadata:
+  name: nginxfs
+  labels:
+    app: nginxfs
+    tier: frontend
+spec:
+  selector:
+    matchLabels:
+      app: nginxfs
+      tier: frontend
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: nginxfs
+        tier: frontend
+    spec:
+      containers:
+        - image: nginx:1.23
+          name: nginx
+          ports:
+            - containerPort: 80
+              name: nginx
+          volumeMounts:
+            - name: nginx-persistent-storage
+              mountPath: /srv
+            - name: nginx-config-volume
+              mountPath: /etc/nginx/conf.d/default.conf
+              subPath: fserver.conf
+      volumes:
+        - name: nginx-persistent-storage
+          persistentVolumeClaim:
+            claimName: nginx-pv-claim
+        - name: nginx-config-volume
+          configMap:
+            name: nginx-config
